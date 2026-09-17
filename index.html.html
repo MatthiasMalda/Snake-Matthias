@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Snake Matthias</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#111827;color:#fff;font-family:Arial,sans-serif}
+.game{width:min(94vw,560px);text-align:center}
+h1{font-size:42px;margin:0 0 8px}
+.top{display:flex;justify-content:space-between;margin:0 2px 10px;font-size:18px}
+canvas{width:100%;aspect-ratio:1;display:block;background:#0b1220;border:4px solid #374151;border-radius:14px}
+button{margin:12px 4px 0;padding:10px 20px;border:0;border-radius:10px;background:#f59e0b;color:#111827;font-weight:bold;font-size:16px;cursor:pointer}
+p{color:#cbd5e1;font-size:14px}
+</style>
+</head>
+<body>
+<div class="game">
+<h1>🐍 Snake Matthias</h1>
+<div class="top"><span>Score: <b id="score">0</b></span><span>Beste: <b id="best">0</b></span></div>
+<canvas id="c" width="500" height="500"></canvas>
+<button id="restart">Opnieuw</button><button id="pause">Pauze</button>
+<p>Besturing: ⬆️⬇️⬅️➡️ of WASD · P = pauze · Spatie/Enter = opnieuw</p>
+</div>
+<script>
+const canvas=document.getElementById("c"),ctx=canvas.getContext("2d"),N=25,S=20;
+let snake,dir,next,apples,score,over,started,paused,delay,timer,walls,glowBlocks,wallProgress,glowTimer;
+let best=Number(localStorage.getItem("snakeBest")||0);
+document.getElementById("best").textContent=best;
+
+function reset(){
+ clearInterval(timer);
+ clearTimeout(glowTimer);
+ snake=[{x:12,y:12},{x:11,y:12},{x:10,y:12}];
+ dir={x:1,y:0};next={...dir};apples=[];score=0;walls=[];glowBlocks=[];wallProgress=0;over=false;started=false;paused=false;delay=130;
+ maintainApples();
+ document.getElementById("pause").textContent="Pauze";
+ updateUI();draw();startTimer();
+}
+
+function startTimer(){clearInterval(timer);timer=setInterval(tick,delay)}
+function appleCount(){return Math.min(9,3+Math.floor(score/5))}
+function appleLevel(){return Math.min(4,1+Math.floor(score/10))}
+
+function addApple(){
+ let a;
+ do{
+  a={x:Math.floor(Math.random()*N),y:Math.floor(Math.random()*N),level:appleLevel()};
+ }while(
+  snake.some(p=>p.x===a.x&&p.y===a.y) || 
+  apples.some(p=>p.x===a.x&&p.y===a.y) || 
+  walls.some(w=>w.x===a.x&&w.y===a.y)
+ );
+ apples.push(a);
+}
+
+function maintainApples(){
+ while(apples.length<appleCount()) addApple();
+}
+
+function checkWallSpawn(){
+ wallProgress++;
+ if(wallProgress >= 30){
+   wallProgress = 0;
+   const tailToWall = snake.slice(3);
+   
+   tailToWall.forEach(part => {
+     if(!walls.some(w => w.x === part.x && w.y === part.y)) {
+       walls.push({x: part.x, y: part.y, used: false});
+     }
+   });
+
+   snake = snake.slice(0,3);
+   scheduleGlow();
+ }
+}
+
+function addGlowBlock(){
+ if(!walls.length)return;
+ const available=walls.filter(w=>!w.used);
+ if(!available.length)return;
+ const w=available[Math.floor(Math.random()*available.length)];
+ w.used=true;
+ glowBlocks.push({x:w.x,y:w.y});
+}
+
+function scheduleGlow(){
+ clearTimeout(glowTimer);
+ if(!walls.length)return;
+ const ms=3000+Math.random()*2000; // Tussen 3 en 5 seconden
+ glowTimer=setTimeout(()=>{
+  if(!over && !paused){
+   addGlowBlock();
+  }
+  if(!over) scheduleGlow();
+ },ms);
+}
+
+function updateUI(){
+ document.getElementById("score").textContent=score;
+ document.getElementById("best").textContent=best;
+}
+
+function setDir(x,y){
+ if(over){reset();return}
+ if(x===-dir.x&&y===-dir.y)return;
+ next={x,y};started=true;
+}
+
+document.addEventListener("keydown",e=>{
+ let k=e.key.toLowerCase();
+ let m={arrowup:[0,-1],w:[0,-1],arrowdown:[0,1],s:[0,1],arrowleft:[-1,0],a:[-1,0],arrowright:[1,0],d:[1,0]};
+ if(k==="p"){e.preventDefault();togglePause();return}
+ if(m[k]&&!paused){
+   e.preventDefault();
+   setDir(...m[k]);
+ }
+ if(k===" "||k==="enter"){e.preventDefault();reset()}
+});
+
+document.getElementById("restart").onclick=reset;
+document.getElementById("pause").onclick=togglePause;
+
+function togglePause(){
+ if(over)return;
+ paused=!paused;
+ document.getElementById("pause").textContent=paused?"Verder":"Pauze";
+ draw();
+}
+
+function tick(){
+ if(!started||over||paused)return;
+
+ dir={...next};
+ let head={x:snake[0].x+dir.x,y:snake[0].y+dir.y};
+
+ if(head.x<0||head.x>=N||head.y<0||head.y>=N||snake.some(p=>p.x===head.x&&p.y===head.y)||
+   walls.some(w=>w.x===head.x&&w.y===head.y&&!glowBlocks.some(g=>g.x===w.x&&g.y===w.y))){
+   over=true;draw();return;
+ }
+
+ snake.unshift(head);
+
+ let grew=false;
+
+ let gi=glowBlocks.findIndex(g=>g.x===head.x&&g.y===head.y);
+ if(gi>=0){
+   score+=15;
+   glowBlocks.splice(gi,1);
+   let wi=walls.findIndex(w=>w.x===head.x&&w.y===head.y);
+   if(wi>=0) walls.splice(wi,1);
+   if(score>best){best=score;localStorage.setItem("snakeBest",best)}
+   grew=true;
+   updateUI();
+ }
+
+ let i=apples.findIndex(a=>a.x===head.x&&a.y===head.y);
+ if(i>=0){
+   let value=apples[i].level;
+   score+=value;
+   apples.splice(i,1);
+   maintainApples();
+   if(score>best){best=score;localStorage.setItem("snakeBest",best)}
+   grew=true;
+   updateUI();
+ }
+
+ if(grew){
+   checkWallSpawn();
+ }else{
+   snake.pop();
+ }
+ draw();
+}
+
+function draw(){
+ ctx.fillStyle="#0b1220";ctx.fillRect(0,0,500,500);
+ ctx.strokeStyle="rgba(255,255,255,.035)";
+ for(let i=1;i<N;i++){
+  ctx.beginPath();ctx.moveTo(i*S,0);ctx.lineTo(i*S,500);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(0,i*S);ctx.lineTo(500,i*S);ctx.stroke();
+ }
+
+ walls.forEach(w=>{
+  ctx.fillStyle="#3b2416";
+  ctx.fillRect(w.x*S+1,w.y*S+1,S-2,S-2);
+ });
+
+ glowBlocks.forEach(g=>{
+  ctx.save();
+  ctx.shadowColor="#39ff88";
+  ctx.shadowBlur=14;
+  ctx.fillStyle="#39ff88";
+  ctx.fillRect(g.x*S+3,g.y*S+3,S-6,S-6);
+  ctx.restore();
+  ctx.fillStyle="#062e18";
+  ctx.font="bold 8px Arial";
+  ctx.textAlign="center";
+  ctx.fillText("+15",g.x*S+S/2,g.y*S+S/2+3);
+ });
+
+ apples.forEach(a=>{
+  let cx=a.x*S+S/2,cy=a.y*S+S/2,r=S*(.27+a.level*.018);
+  ctx.fillStyle=["#ef4444","#f97316","#eab308","#a855f7"][a.level-1];
+  ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle="#7f1d1d";ctx.fillRect(cx-2,cy-r-5,4,7);
+  ctx.fillStyle="#22c55e";ctx.beginPath();ctx.ellipse(cx+5,cy-r-3,6,3,-.4,0,Math.PI*2);ctx.fill();
+  if(a.level>1){ctx.fillStyle="#fff";ctx.font="bold 9px Arial";ctx.textAlign="center";ctx.fillText("+"+a.level,cx,cy+3)}
+ });
+
+ snake.forEach((p,i)=>{
+  ctx.fillStyle=i===0?"#f59e0b":"#22c55e";
+  ctx.beginPath();ctx.roundRect(p.x*S+3,p.y*S+3,S-6,S-6,5);ctx.fill();
+ });
+
+ if(paused&&!over){
+  overlay();ctx.fillStyle="#fff";ctx.textAlign="center";ctx.font="bold 40px Arial";ctx.fillText("Gepauzeerd",250,240);
+  ctx.font="20px Arial";ctx.fillText("Druk op P of Verder",250,280);
+ }
+ if(over){
+  overlay();ctx.fillStyle="#fff";ctx.textAlign="center";ctx.font="bold 40px Arial";ctx.fillText("Game over!",250,235);
+  ctx.font="20px Arial";ctx.fillText("Druk op Enter of Opnieuw",250,275);
+ }
+}
+
+function overlay(){ctx.fillStyle="rgba(0,0,0,.65)";ctx.fillRect(0,0,500,500)}
+reset();
+</script>
+</body>
+</html>
